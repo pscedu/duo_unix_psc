@@ -1,0 +1,249 @@
+diff -r -p duo_unix-1.10.0/CHANGES duo_unix-1.10.0-patched/CHANGES
+*** duo_unix-1.10.0/CHANGES	2017-06-21 14:15:26.000000000 -0400
+--- duo_unix-1.10.0-patched/CHANGES	2017-07-05 21:09:40.659484604 -0400
+***************
+*** 1,3 ****
+--- 1,12 ----
++ XSEDE NOTE: This is Duo Security's duo_unix-1.10.0 tarball patched by XSEDE to
++ add the nosshpwcheck option. Please refer to pam_duo.8 for info on this option.
++ -------------------------------------------------------------------------------
++ PSC Note: This is Duo Security's duo_unix-1.10.0 tarball patched by PSC to add
++ the enrolledreqd option, and to change the default failmode to DUO_FAIL_SECURE.
++ Also adds function duo_local_hostname() to return the hostname of the local
++ host when pam_duo is used for authentication with su or sudo.
++ -------------------------------------------------------------------------------
++ 
+  duo_unix-1.10.0:
+  
+  - Added LibreSSL support
+diff -r -p duo_unix-1.10.0/lib/util.c duo_unix-1.10.0-patched/lib/util.c
+*** duo_unix-1.10.0/lib/util.c	2017-06-20 15:28:00.000000000 -0400
+--- duo_unix-1.10.0-patched/lib/util.c	2017-07-05 21:22:03.928721186 -0400
+*************** void
+*** 26,32 ****
+  duo_config_default(struct duo_config *cfg)
+  {
+      memset(cfg, 0, sizeof(struct duo_config));
+!     cfg->failmode = DUO_FAIL_SAFE;
+      cfg->prompts = MAX_PROMPTS;
+      cfg->local_ip_fallback = 0;
+      cfg->https_timeout = -1;
+--- 26,32 ----
+  duo_config_default(struct duo_config *cfg)
+  {
+      memset(cfg, 0, sizeof(struct duo_config));
+!     cfg->failmode = DUO_FAIL_SECURE;
+      cfg->prompts = MAX_PROMPTS;
+      cfg->local_ip_fallback = 0;
+      cfg->https_timeout = -1;
+*************** duo_local_ip()
+*** 213,218 ****
+--- 213,241 ----
+      return (ip);
+  }
+  
++ const char *
++ duo_local_hostname()
++ {
++     struct addrinfo hints, *info;
++     int gai_result;
++ 
++     char hostname[1024];
++     hostname[1023] = '\0';
++     gethostname(hostname, 1023);
++ 
++     memset(&hints, 0, sizeof hints);
++     hints.ai_family = AF_UNSPEC;
++     hints.ai_socktype = SOCK_STREAM;
++     hints.ai_flags = AI_CANONNAME;
++ 
++     if ((gai_result = getaddrinfo(hostname, "http", &hints, &info)) == 0) {
++       return(info->ai_canonname);
++     } else {
++       return(hostname);
++     }
++ 
++ }
++ 
+  char *
+  duo_split_at(char *s, char delimiter, unsigned int position)
+  {
+diff -r -p duo_unix-1.10.0/lib/util.h duo_unix-1.10.0-patched/lib/util.h
+*** duo_unix-1.10.0/lib/util.h	2017-06-20 15:28:00.000000000 -0400
+--- duo_unix-1.10.0-patched/lib/util.h	2017-07-05 21:33:56.838721922 -0400
+*************** const char *duo_resolve_name(const char
+*** 71,76 ****
+--- 71,78 ----
+  
+  const char *duo_local_ip();
+  
++ const char *duo_local_hostname();
++ 
+  char *duo_split_at(char *s, char delimiter, unsigned int position);
+  
+  #endif
+diff -r -p duo_unix-1.10.0/pam_duo/pam_duo.8 duo_unix-1.10.0-patched/pam_duo/pam_duo.8
+*** duo_unix-1.10.0/pam_duo/pam_duo.8	2017-05-22 14:12:38.000000000 -0400
+--- duo_unix-1.10.0-patched/pam_duo/pam_duo.8	2017-07-06 15:13:20.067777955 -0400
+*************** PAM module configuration options support
+*** 18,23 ****
+--- 18,35 ----
+  .It conf
+  Specify an alternate configuration file to load. Default is 
+  .Pa /etc/duo/pam_duo.conf
++ .It enrolledreqd
++ Returns PAM AUTHINFO_UNAVAIL if a user has not yet enrolled in the DUO
++ account when authentication is attempted. This allows you to deny and
++ respond appropriately to users who are required to authenticate with
++ DUO when they have not yet enrolled in the configured DUO account.
++ .It nosshpwcheck
++ Tells pam_duo not to check that the username for DUO authentication
++ exists as a local account. Useful together with GSI-OpenSSH (with
++ PermitPAMUserChange yes in sshd_config) to allow a user authenticating
++ with a federated identity for DUO to be mapped to a local identity
++ during authentication. NOTE: nosshpwcheck cannot be used together with
++ the groups option in the configuration file.
+  .It debug
+  Debug mode; send log messages to stderr instead of syslog.
+  .El
+diff -r -p duo_unix-1.10.0/pam_duo/pam_duo.c duo_unix-1.10.0-patched/pam_duo/pam_duo.c
+*** duo_unix-1.10.0/pam_duo/pam_duo.c	2017-06-20 15:28:00.000000000 -0400
+--- duo_unix-1.10.0-patched/pam_duo/pam_duo.c	2017-07-06 10:13:31.057073453 -0400
+*************** pam_sm_authenticate(pam_handle_t *pamh,
+*** 106,112 ****
+      int argc, const char *argv[])
+  {
+  	struct duo_config cfg;
+! 	struct passwd *pw;
+  	struct in_addr addr;
+  	duo_t *duo;
+  	duo_code_t code;
+--- 106,112 ----
+      int argc, const char *argv[])
+  {
+  	struct duo_config cfg;
+! 	struct passwd *pw = NULL;
+  	struct in_addr addr;
+  	duo_t *duo;
+  	duo_code_t code;
+*************** pam_sm_authenticate(pam_handle_t *pamh,
+*** 133,138 ****
+--- 133,143 ----
+  	const char delimiter = '/';
+  	const unsigned int delimited_position = 5;
+  
++ 	/* XSEDE and PSC -added variables */
++ 	int duo_nosshpwcheck = 0;
++ 	int duo_enrolledreqd = 0;
++ 	char pam_err_str[17] = "PAM_DUO_AUTHN=00";
++ 
+  	duo_config_default(&cfg);
+  
+  	/* Parse configuration */
+*************** pam_sm_authenticate(pam_handle_t *pamh,
+*** 142,147 ****
+--- 147,158 ----
+  			config = argv[i] + 5;
+  		} else if (strcmp("debug", argv[i]) == 0) {
+  			duo_debug = 1;
++ 		/* XSEDE added option */
++ 		} else if (strcmp("nosshpwcheck", argv[i]) == 0) {
++ 			duo_nosshpwcheck = 1;
++ 		/* PSC added option */
++ 		} else if (strcmp("enrolledreqd", argv[i]) == 0) {
++ 			duo_enrolledreqd = 1;
+  		} else {
+  			duo_syslog(LOG_ERR, "Invalid pam_duo option: '%s'",
+  			    argv[i]);
+*************** pam_sm_authenticate(pam_handle_t *pamh,
+*** 166,174 ****
+          return (cfg.failmode == DUO_FAIL_SAFE ? PAM_SUCCESS : PAM_SERVICE_ERR);
+      }
+  
+      /* Check user */
+      if (pam_get_user(pamh, &user, NULL) != PAM_SUCCESS ||
+!         (pw = getpwnam(user)) == NULL) {
+          return (PAM_USER_UNKNOWN);
+      }
+      /* XXX - Service-specific behavior */
+--- 177,194 ----
+          return (cfg.failmode == DUO_FAIL_SAFE ? PAM_SUCCESS : PAM_SERVICE_ERR);
+      }
+  
++     /* XSEDE-added check: nosshpwcheck cannot be used together with groups */
++     if (duo_nosshpwcheck == 1 && cfg.groups_cnt != 0) {
++ 	duo_syslog(LOG_ERR, "nosshpwcheck pam_duo option specified but config"
++ 			    " file specifies 'groups' option; both can't be used"
++ 			    " at the same time");
++ 	return (PAM_CRED_INSUFFICIENT);
++     }
++ 
+      /* Check user */
++     /* Skips this if XSEDE-added nosshpwcheck option was specified */
+      if (pam_get_user(pamh, &user, NULL) != PAM_SUCCESS ||
+!         (duo_nosshpwcheck == 0 && (pw = getpwnam(user)) == NULL)) {
+          return (PAM_USER_UNKNOWN);
+      }
+      /* XXX - Service-specific behavior */
+*************** pam_sm_authenticate(pam_handle_t *pamh,
+*** 235,240 ****
+--- 255,266 ----
+          }
+      }
+  
++     /* PSC: Local sudo/su, pam_get_item returns NULL and host does not get updated */
++     if (host == NULL) {
++ 	host = duo_local_hostname();
++ 	duo_syslog(LOG_WARNING, "pam_duo(%s:auth) PAM_USER=%s PAM_RHOST=%s IP=%s", service, user, host, ip);
++     }
++ 
+      /* Try Duo auth */
+      if ((duo = duo_open(cfg.apihost, cfg.ikey, cfg.skey,
+                      "pam_duo/" PACKAGE_VERSION,
+*************** pam_sm_authenticate(pam_handle_t *pamh,
+*** 265,277 ****
+          /* Terminal conditions */
+          if (code == DUO_OK) {
+              if ((p = duo_geterr(duo)) != NULL) {
+!                 duo_log(LOG_WARNING, "Skipped Duo login",
+!                     pw->pw_name, host, p);
+!             } else {
+!                 duo_log(LOG_INFO, "Successful Duo login",
+!                     pw->pw_name, host, NULL);
+!             }
+!             pam_err = PAM_SUCCESS;
+          } else if (code == DUO_ABORT) {
+              duo_log(LOG_WARNING, "Aborted Duo login",
+                  pw->pw_name, host, duo_geterr(duo));
+--- 291,308 ----
+          /* Terminal conditions */
+          if (code == DUO_OK) {
+              if ((p = duo_geterr(duo)) != NULL) {
+! 		/* PSC: If enrolledreqd is defined, return PAM_AUTHINFO_UNAVAIL */
+! 		if (duo_enrolledreqd == 1) {
+! 			duo_log(LOG_WARNING, "Denied Duo Not Enrolled", user, host, p);
+! 			pam_err = PAM_AUTHINFO_UNAVAIL;
+! 		} else {
+! 			duo_log(LOG_WARNING, "Skipped Duo login", user, host, p);
+! 			pam_err = PAM_SUCCESS;
+! 		}
+! 	    } else {
+! 		duo_log(LOG_INFO, "Successful Duo login", user, host, NULL);
+! 		pam_err = PAM_SUCCESS;
+! 	    }
+          } else if (code == DUO_ABORT) {
+              duo_log(LOG_WARNING, "Aborted Duo login",
+                  pw->pw_name, host, duo_geterr(duo));
+*************** pam_sm_authenticate(pam_handle_t *pamh,
+*** 294,299 ****
+--- 325,334 ----
+      }
+      duo_close(duo);
+  
++     /* PSC: Set an environment variable that can be picked up in a later (account) stack */
++     snprintf(pam_err_str, 16, "PAM_DUO_AUTHN=%-2d", pam_err);
++     pam_putenv(pamh, pam_err_str);
++ 
+      return (pam_err);
+  }
+  
