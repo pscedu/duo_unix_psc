@@ -15,6 +15,6 @@ here. We plan to maintain the patches for future releases and will
 publish those here as well.
 
 An example walkthrough of applying the patches is provided on the
-duo_unix_psc Wiki page.
+https://github.com/pscedu/duo_unix_psc/wiki page.
 
 (c) Copyright 2017 Pittsburgh Supercomputing Center
