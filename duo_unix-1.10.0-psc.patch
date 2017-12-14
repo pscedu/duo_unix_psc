@@ -1,6 +1,6 @@
-diff -r -p duo_unix-1.10.0/CHANGES duo_unix-1.10.0-patched/CHANGES
+diff -p -r duo_unix-1.10.0/CHANGES duo_unix-1.10.0-patched/CHANGES
 *** duo_unix-1.10.0/CHANGES	2017-06-21 14:15:26.000000000 -0400
---- duo_unix-1.10.0-patched/CHANGES	2017-07-05 21:09:40.659484604 -0400
+--- duo_unix-1.10.0-patched/CHANGES	2017-12-14 02:40:13.978132262 -0500
 ***************
 *** 1,3 ****
 --- 1,12 ----
@@ -16,9 +16,9 @@ diff -r -p duo_unix-1.10.0/CHANGES duo_unix-1.10.0-patched/CHANGES
   duo_unix-1.10.0:
   
   - Added LibreSSL support
-diff -r -p duo_unix-1.10.0/lib/util.c duo_unix-1.10.0-patched/lib/util.c
+diff -p -r duo_unix-1.10.0/lib/util.c duo_unix-1.10.0-patched/lib/util.c
 *** duo_unix-1.10.0/lib/util.c	2017-06-20 15:28:00.000000000 -0400
---- duo_unix-1.10.0-patched/lib/util.c	2017-07-05 21:22:03.928721186 -0400
+--- duo_unix-1.10.0-patched/lib/util.c	2017-12-14 02:42:04.852275448 -0500
 *************** void
 *** 26,32 ****
   duo_config_default(struct duo_config *cfg)
@@ -38,39 +38,38 @@ diff -r -p duo_unix-1.10.0/lib/util.c duo_unix-1.10.0-patched/lib/util.c
       cfg->https_timeout = -1;
 *************** duo_local_ip()
 *** 213,218 ****
---- 213,241 ----
+--- 213,240 ----
       return (ip);
   }
   
++ char local_hostname[1024];
 + const char *
 + duo_local_hostname()
 + {
 +     struct addrinfo hints, *info;
 +     int gai_result;
 + 
-+     char hostname[1024];
-+     hostname[1023] = '\0';
-+     gethostname(hostname, 1023);
++     memset(local_hostname, 0, sizeof(local_hostname));
++     gethostname(local_hostname, 1023);
 + 
-+     memset(&hints, 0, sizeof hints);
++     memset(&hints, 0, sizeof(hints));
 +     hints.ai_family = AF_UNSPEC;
 +     hints.ai_socktype = SOCK_STREAM;
 +     hints.ai_flags = AI_CANONNAME;
 + 
-+     if ((gai_result = getaddrinfo(hostname, "http", &hints, &info)) == 0) {
++     if ((gai_result = getaddrinfo(local_hostname, "http", &hints, &info)) == 0) {
 +       return(info->ai_canonname);
 +     } else {
-+       return(hostname);
++       return(local_hostname);
 +     }
-+ 
 + }
 + 
   char *
   duo_split_at(char *s, char delimiter, unsigned int position)
   {
-diff -r -p duo_unix-1.10.0/lib/util.h duo_unix-1.10.0-patched/lib/util.h
+diff -p -r duo_unix-1.10.0/lib/util.h duo_unix-1.10.0-patched/lib/util.h
 *** duo_unix-1.10.0/lib/util.h	2017-06-20 15:28:00.000000000 -0400
---- duo_unix-1.10.0-patched/lib/util.h	2017-07-05 21:33:56.838721922 -0400
+--- duo_unix-1.10.0-patched/lib/util.h	2017-12-14 02:40:13.979132264 -0500
 *************** const char *duo_resolve_name(const char
 *** 71,76 ****
 --- 71,78 ----
@@ -82,9 +81,9 @@ diff -r -p duo_unix-1.10.0/lib/util.h duo_unix-1.10.0-patched/lib/util.h
   char *duo_split_at(char *s, char delimiter, unsigned int position);
   
   #endif
-diff -r -p duo_unix-1.10.0/pam_duo/pam_duo.8 duo_unix-1.10.0-patched/pam_duo/pam_duo.8
+diff -p -r duo_unix-1.10.0/pam_duo/pam_duo.8 duo_unix-1.10.0-patched/pam_duo/pam_duo.8
 *** duo_unix-1.10.0/pam_duo/pam_duo.8	2017-05-22 14:12:38.000000000 -0400
---- duo_unix-1.10.0-patched/pam_duo/pam_duo.8	2017-07-06 15:13:20.067777955 -0400
+--- duo_unix-1.10.0-patched/pam_duo/pam_duo.8	2017-12-14 02:40:13.980132265 -0500
 *************** PAM module configuration options support
 *** 18,23 ****
 --- 18,35 ----
@@ -106,9 +105,9 @@ diff -r -p duo_unix-1.10.0/pam_duo/pam_duo.8 duo_unix-1.10.0-patched/pam_duo/pam
   .It debug
   Debug mode; send log messages to stderr instead of syslog.
   .El
-diff -r -p duo_unix-1.10.0/pam_duo/pam_duo.c duo_unix-1.10.0-patched/pam_duo/pam_duo.c
+diff -p -r duo_unix-1.10.0/pam_duo/pam_duo.c duo_unix-1.10.0-patched/pam_duo/pam_duo.c
 *** duo_unix-1.10.0/pam_duo/pam_duo.c	2017-06-20 15:28:00.000000000 -0400
---- duo_unix-1.10.0-patched/pam_duo/pam_duo.c	2017-07-06 10:13:31.057073453 -0400
+--- duo_unix-1.10.0-patched/pam_duo/pam_duo.c	2017-12-14 02:40:13.980132265 -0500
 *************** pam_sm_authenticate(pam_handle_t *pamh,
 *** 106,112 ****
       int argc, const char *argv[])
