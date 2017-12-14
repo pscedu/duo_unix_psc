@@ -1,0 +1,14 @@
+Changelog for duo_unix_psc patches
+
+2017-12-14: Added patch and signatures for duo_unix-1.10.1
++ new patch and signatures
+
+2017-12-14: Updated patch and signatures for duo_unix-1.10.0
++ updated duo_local_hostname function to replace local hostname
+  variable with global local_hostname, and to add code to make
+  sure that the local_hostname variable gets properly zeroed
+  out when the function is called.
+
+2017-07-06: Added patch and signatures for duo_unix-1.10.0
++ new patch and signatures
+
