@@ -17,4 +17,4 @@ publish those here as well.
 An example walkthrough of applying the patches is provided on the
 https://github.com/pscedu/duo_unix_psc/wiki page.
 
-(c) Copyright 2017 Pittsburgh Supercomputing Center
+(c) Copyright 2018 Pittsburgh Supercomputing Center
